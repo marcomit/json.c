@@ -36,6 +36,9 @@ struct Json {
     };
 };
 
+static void _JsonEncode(Json *, char **);
+static Json *_JsonDecode(char **);
+
 Json *Obj(int type) {
     Json *self = malloc(sizeof(Json));
     *self = (Json){ 0 };
@@ -43,25 +46,25 @@ Json *Obj(int type) {
     return self;
 }
 
-Json *String(char *str) {
+static Json *String(char *str) {
     Json *self = Obj(JSON_STRING);
     self->string = strdup(str);
     return self;
 }
 
-Json *Number(double num) {
+static Json *Number(double num) {
     Json *self = Obj(JSON_NUMBER);
     self->num = num;
     return self;
 }
 
-Json *Bool(int val) {
+static Json *Bool(int val) {
     Json *self = Obj(JSON_BOOL);
     self->boolean = val > 0;
     return self;
 }
 
-Json *List(Json **array) {
+static Json *List(Json **array) {
     Json *self = Obj(JSON_LIST);
     self->list = NULL;
 
@@ -72,16 +75,16 @@ Json *List(Json **array) {
     return self;
 }
 
-JsonMapEntry *Entry(char *key, Json *value) {
+static JsonMapEntry *Entry(char *key, Json *value) {
     JsonMapEntry *self = malloc(sizeof(JsonMapEntry));
     self->key = strdup(key);
     self->value = value;
     return self;
 }
 
-Json *Null() { return Obj(JSON_NULL); }
+static Json *Null() { return Obj(JSON_NULL); }
 
-Json *Map(JsonMapEntry *entries) {
+static Json *Map(JsonMapEntry *entries) {
     Json *self = Obj(JSON_MAP);
     self->map = NULL;
 
@@ -92,10 +95,7 @@ Json *Map(JsonMapEntry *entries) {
     return self;
 }
 
-char *JsonEncode(Json *);
-void _JsonEncode(Json *, char **);
-
-void JsonEncodeList(Json *list, char **buf) {
+static void JsonEncodeList(Json *list, char **buf) {
     vecpush(*buf, '[');
     size_t len = veclen(list->list);
     for (size_t i = 0; i < len; i++) {
@@ -106,7 +106,7 @@ void JsonEncodeList(Json *list, char **buf) {
     vecpush(*buf, ']');
 }
 
-void JsonEncodeMap(Json *map, char **buf) {
+static void JsonEncodeMap(Json *map, char **buf) {
     if (!map) return;
     vecpush(*buf, '{');
     size_t len = veclen(map->map);
@@ -123,83 +123,15 @@ void JsonEncodeMap(Json *map, char **buf) {
     vecpush(*buf, '}');
 }
 
-void JsonEncodeNumber(Json *root, char **buf) {
+static void JsonEncodeNumber(Json *root, char **buf) {
     char num[100] = { 0 };
 
     sprintf(num, "%g", root->num);
     vecunion(*buf, num, strlen(num));
 }
 
-char *JsonEncode(Json *root) {
-    char *buf = NULL;
-    _JsonEncode(root, &buf);
-    vecpush(buf, '\0');
-    return buf;
-}
-
-
-Json *_JsonDecode(char **);
-
-Json *JsonDecodeList(char **src) {
-    if (**src == '[') (*src)++;
-
-    Json *list = Obj(JSON_LIST);
-    while (**src != ']') {
-        Json *val = _JsonDecode(src);
-        if (!val) return NULL;
-
-        if (**src == ']') break; 
-        if (**src != ',') return NULL;
-        (*src)++;
-
-        vecpush(list->list, val);
-    }
-
-    (*src)++;
-    return list;
-}
-
-Json *JsonDecodeMap(char **src) {
-    return NULL;
-}
-
-Json *JsonDecodeString(char **src) {
-    return NULL;
-}
-
-Json *JsonDecodeNum(char **src) {
-    return NULL;
-}
-
-Json *_JsonDecode(char **src) {
-    switch (**src) {
-    case '[': return JsonDecodeList(src);
-    case '{': return JsonDecodeMap(src);
-    case '"': return JsonDecodeString(src);
-    default:
-        if (isdigit(**src)) {
-            return JsonDecodeNum(src);
-        } else if (strncmp(*src, "null", 4) == 0) {
-            src += 4;
-            return Null();
-        } else if (strncmp(*src, "true", 4) == 0) {
-            src += 4;
-            return Bool(1);
-        } else if (strncmp(*src, "false", 5) == 0) {
-            src += 5;
-            return Bool(0);
-        }
-        return NULL;
-    }
-}
-
-Json *JsonDecode(char *src) {
-    char *source = src;
-    return _JsonDecode(&source);
-}
-
-void _JsonEncode(Json *root, char **buf) {
-    if (!root) return;
+static void _JsonEncode(Json *root, char **buf) {
+    if (!root || !buf || !*buf) return;
     switch (root->type) {
     case JSON_BOOL:
         if(root->boolean) vecunion(*buf, "true", 4);
@@ -214,6 +146,158 @@ void _JsonEncode(Json *root, char **buf) {
     case JSON_NUMBER:   JsonEncodeNumber(root, buf);    break;
     case JSON_LIST:     JsonEncodeList(root, buf);      break;
     case JSON_MAP:      JsonEncodeMap(root, buf);       break;
-    default:            printf("Not handled\n");        break;
+    default:            *buf = NULL;                    break;
     }
+}
+
+char *JsonEncode(Json *root) {
+    char *buf = NULL;
+    _JsonEncode(root, &buf);
+    if (!buf) return NULL;
+    vecpush(buf, '\0');
+    return buf;
+}
+
+static void SkipWhitespace(char **src) {
+    while (**src && isspace(**src)) (*src)++;
+}
+
+char *DecodeString(char **src) {
+    if (**src != '"') return NULL;
+    (*src)++;
+    char *buf = NULL;
+
+    while (**src && **src != '"') {
+        if (**src == '\\') {
+            (*src)++;
+            switch (**src) {
+            case '"':  vecpush(buf, '"');  break;
+            case '\\': vecpush(buf, '\\'); break;
+            case '/':  vecpush(buf, '/');  break;
+            case 'n':  vecpush(buf, '\n'); break;
+            case 't':  vecpush(buf, '\t'); break;
+            case 'r':  vecpush(buf, '\r'); break;
+            case 'b':  vecpush(buf, '\b'); break;
+            case 'f':  vecpush(buf, '\f'); break;
+            default:   vecpush(buf, **src); break;
+            }
+        } else {
+            vecpush(buf, **src);
+        }
+        (*src)++;
+    }
+
+    if (**src != '"') return NULL;
+    (*src)++;
+
+    vecpush(buf, '\0');
+    return buf;
+}
+
+static Json *JsonDecodeString(char **src) {
+    char *key = DecodeString(src);
+    if (!key) return NULL;
+    Json *str = Obj(JSON_STRING);
+    str->string = key;
+    return str;
+}
+
+static Json *JsonDecodeNum(char **src) {
+    char *end;
+    double val = strtod(*src, &end);
+    if (end == *src) return NULL;
+    *src = end;
+    return Number(val);
+}
+
+static Json *JsonDecodeList(char **src) {
+    (*src)++; // skip '['
+    SkipWhitespace(src);
+
+    Json *list = Obj(JSON_LIST);
+
+    if (**src == ']') {
+        (*src)++;
+        return list;
+    }
+
+    while (1) {
+        SkipWhitespace(src);
+        Json *val = _JsonDecode(src);
+        if (!val) return NULL;
+        vecpush(list->list, val);
+
+        SkipWhitespace(src);
+        if (**src == ']') break;
+        if (**src != ',') return NULL;
+        (*src)++;
+    }
+
+    (*src)++;
+    return list;
+}
+
+static Json *JsonDecodeMap(char **src) {
+    (*src)++; // skip '{'
+    SkipWhitespace(src);
+
+    Json *map = Obj(JSON_MAP);
+
+    if (**src == '}') {
+        (*src)++;
+        return map;
+    }
+
+    while (1) {
+        SkipWhitespace(src);
+        char *key = DecodeString(src);
+        if (!key) return NULL;
+
+        SkipWhitespace(src);
+        if (**src != ':') return NULL;
+        (*src)++;
+
+        SkipWhitespace(src);
+        Json *value = _JsonDecode(src);
+        if (!value) return NULL;
+
+        JsonMapEntry entry = (JsonMapEntry){ key, value };
+        vecpush(map->map, entry);
+
+        SkipWhitespace(src);
+        if (**src != ',') break;
+        (*src)++;
+    }
+
+    if (**src != '}') return NULL;
+    (*src)++;
+    return map;
+}
+
+static Json *_JsonDecode(char **src) {
+    SkipWhitespace(src);
+    switch (**src) {
+    case '[': return JsonDecodeList(src);
+    case '{': return JsonDecodeMap(src);
+    case '"': return JsonDecodeString(src);
+    default:
+        if (isdigit(**src) || **src == '-') {
+            return JsonDecodeNum(src);
+        } else if (strncmp(*src, "null", 4) == 0) {
+            *src += 4;
+            return Null();
+        } else if (strncmp(*src, "true", 4) == 0) {
+            *src += 4;
+            return Bool(1);
+        } else if (strncmp(*src, "false", 5) == 0) {
+            *src += 5;
+            return Bool(0);
+        }
+        return NULL;
+    }
+}
+
+Json *JsonDecode(char *src) {
+    char *source = src;
+    return _JsonDecode(&source);
 }
