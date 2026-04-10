@@ -1,40 +1,9 @@
+#include "json.h"
 #include "zvec.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define JSON_TERMINAL_MASK 1 << 8
-#define JSON_COMPOSED_MASK 1 << 9
-
-typedef struct Json Json;
-
-enum {
-    JSON_NULL = JSON_TERMINAL_MASK,
-    JSON_BOOL,
-    JSON_STRING,
-    JSON_NUMBER,
-
-    JSON_LIST = JSON_COMPOSED_MASK,
-    JSON_MAP
-};
-
-typedef struct JsonMapEntry {
-    char    *key;
-    Json    *value;
-} JsonMapEntry;
-
-struct Json {
-    int type;
-
-    union {
-        double num;
-        int boolean;
-        char *string;
-        Json **list;
-        JsonMapEntry *map;
-    };
-};
 
 static void _JsonEncode(Json *, char **);
 static Json *_JsonDecode(char **);
@@ -43,55 +12,6 @@ Json *Obj(int type) {
     Json *self = malloc(sizeof(Json));
     *self = (Json){ 0 };
     self->type = type;
-    return self;
-}
-
-static Json *String(char *str) {
-    Json *self = Obj(JSON_STRING);
-    self->string = strdup(str);
-    return self;
-}
-
-static Json *Number(double num) {
-    Json *self = Obj(JSON_NUMBER);
-    self->num = num;
-    return self;
-}
-
-static Json *Bool(int val) {
-    Json *self = Obj(JSON_BOOL);
-    self->boolean = val > 0;
-    return self;
-}
-
-static Json *List(Json **array) {
-    Json *self = Obj(JSON_LIST);
-    self->list = NULL;
-
-    while (*array) {
-        vecpush(self->list, *array);
-        array++;
-    }
-    return self;
-}
-
-static JsonMapEntry *Entry(char *key, Json *value) {
-    JsonMapEntry *self = malloc(sizeof(JsonMapEntry));
-    self->key = strdup(key);
-    self->value = value;
-    return self;
-}
-
-static Json *Null() { return Obj(JSON_NULL); }
-
-static Json *Map(JsonMapEntry *entries) {
-    Json *self = Obj(JSON_MAP);
-    self->map = NULL;
-
-    while (entries->key != NULL) {
-        vecpush(self->map, *entries);
-        entries++;
-    }
     return self;
 }
 
@@ -207,7 +127,9 @@ static Json *JsonDecodeNum(char **src) {
     double val = strtod(*src, &end);
     if (end == *src) return NULL;
     *src = end;
-    return Number(val);
+    Json *res = Obj(JSON_NUMBER);
+    res->num = val;
+    return res;
 }
 
 static Json *JsonDecodeList(char **src) {
@@ -285,13 +207,17 @@ static Json *_JsonDecode(char **src) {
             return JsonDecodeNum(src);
         } else if (strncmp(*src, "null", 4) == 0) {
             *src += 4;
-            return Null();
+            return Obj(JSON_NULL);
         } else if (strncmp(*src, "true", 4) == 0) {
             *src += 4;
-            return Bool(1);
+            Json *obj = Obj(JSON_BOOL);
+            obj->boolean = 1;
+            return obj;
         } else if (strncmp(*src, "false", 5) == 0) {
             *src += 5;
-            return Bool(0);
+            Json *obj = Obj(JSON_BOOL);
+            obj->boolean = 0;
+            return obj;
         }
         return NULL;
     }
