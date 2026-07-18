@@ -5,15 +5,40 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct Json {
+    int type;
+
+    union {
+        double num;
+        int boolean;
+        char *string;
+        Json **list;
+        JsonMapEntry *map;
+    };
+};
+
 static void _JsonEncode(Json *, char **);
 static Json *_JsonDecode(char **);
 
-Json *Obj(int type) {
+static Json *Obj(int type) {
     Json *self = malloc(sizeof(Json));
     *self = (Json){ 0 };
     self->type = type;
     return self;
 }
+
+#define JsonConstruct(name, type, paramType, paramName) Json *name(paramType paramName) {\
+    Json *self = Obj(type);\
+    self->paramName = paramName;\
+    return self;\
+}
+
+JsonConstruct(JsonList,     JSON_LIST,      Json**,         list)
+JsonConstruct(JsonBool,     JSON_BOOL,      int,            boolean)
+JsonConstruct(JsonNumber,   JSON_NUMBER,    double,         num)
+JsonConstruct(JsonString,   JSON_STRING,    char*,          string)
+JsonConstruct(JsonMap,      JSON_MAP,       JsonMapEntry*,  map)
+Json        * JsonNull(void) { return Obj(JSON_NULL); }
 
 static void JsonEncodeList(Json *list, char **buf) {
     vecpush(*buf, '[');
@@ -51,7 +76,7 @@ static void JsonEncodeNumber(Json *root, char **buf) {
 }
 
 static void _JsonEncode(Json *root, char **buf) {
-    if (!root || !buf || !*buf) return;
+    if (!root || !buf) return;
     switch (root->type) {
     case JSON_BOOL:
         if(root->boolean) vecunion(*buf, "true", 4);

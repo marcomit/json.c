@@ -21,19 +21,14 @@ typedef struct JsonMapEntry {
     Json    *value;
 } JsonMapEntry;
 
-struct Json {
-    int type;
-
-    union {
-        double num;
-        int boolean;
-        char *string;
-        Json **list;
-        JsonMapEntry *map;
-    };
-};
 
 char *JsonEncode(Json *);
 Json *JsonDecode(char *);
 
+Json *JsonList  (Json **);
+Json *JsonBool  (int);
+Json *JsonNumber(double);
+Json *JsonString(char *);
+Json *JsonMap   (JsonMapEntry *);
+Json *JsonNull  (void);
 #endif // JSON_H
